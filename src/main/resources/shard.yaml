@@ -1,0 +1,18 @@
+dataSources:
+  db: !!com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.jdbc.Driver
+    jdbcUrl:
+    username:
+    password:
+shardingRule:
+  tables:
+    tb1_5kb:
+      actualDataNodes: db.tb1_5kb_${def tmp=[];(0..2).each {e->tmp.add(String.format("%04d",e))};return tmp}
+#      databaseStrategy:
+#        inline:
+#          shardingColumn: id
+#          algorithmExpression: db
+      tableStrategy:
+        inline:
+          shardingColumn: haha
+          algorithmExpression: tb1_5kb_${String.format("%04d", haha.toBigInteger() % 3)}

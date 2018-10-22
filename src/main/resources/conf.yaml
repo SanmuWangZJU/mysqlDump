@@ -1,0 +1,23 @@
+source:
+  url:
+  userName:
+  password:
+target:
+  url:
+  userName:
+  password:
+mediaPairs:
+  - sourceMeta:
+      schemaName:
+      tableName:
+    targetMeta:
+      schemaName:
+      tableName:
+    columnPairs:
+      - columnName:
+      - columnName:
+      - columnName:
+        shardKey: true
+    keyPairs:
+      - columnName: id
+usingShard: true
