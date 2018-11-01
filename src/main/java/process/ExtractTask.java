@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @Data
-public class Extract {
+public class ExtractTask implements Runnable{
     private static ThreadFactory threadFactory;
     private static SqlBuilder SQL_BUILDER = SqlBuilder.getSqlBuilder();
     private List<MediaPair> mediaPairs;
@@ -41,7 +41,7 @@ public class Extract {
                 .build();
     }
 
-    public void extract() {
+    public void run() {
         //及时关闭线程池
         CountDownLatch latch = new CountDownLatch(mediaPairs.size());
         Thread demandThread = new Thread(()->{

@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @Data
-public class Load {
+public class LoadTask implements Runnable{
     private static final SqlBuilder SQL_BUILDER = SqlBuilder.getSqlBuilder();
     private static ThreadFactory threadFactory;
     private List<MediaPair> mediaPairs;
@@ -36,7 +36,7 @@ public class Load {
                 .build();
     }
 
-    public void load() {
+    public void run() {
         mediaPairs.forEach(mediaPair -> {
             try {
                 AtomicInteger batchCount = new AtomicInteger(0);
@@ -56,7 +56,7 @@ public class Load {
                     if (datas.size() >= loadBatchSize||isInterrupted) {
                         batchCount.getAndIncrement();
                         List<RowData> rowDatas = datas;
-                        log.info("consume data size {}", datas.size());
+                        log.info("consume data: batch {}; size {}", batchCount.get(), datas.size());
                         datas = new ArrayList<>();
                         load_executor.execute(() -> {
                             sqlExecutor.executeInsertToTargetWithPrepareStatement(loadSql, mediaPair, rowDatas);

@@ -5,8 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import model.ColumnPair;
 import model.DumpMediaInfo;
 import model.RowData;
-import process.Extract;
-import process.Load;
+import process.ExtractTask;
+import process.LoadTask;
 import service.DataMediaSourceService;
 import serviceImpl.MysqlDataMediaSourceServiceImpl;
 import utils.SqlUtils;
@@ -46,19 +46,19 @@ public class Launcher {
         AtomicBoolean extractFinish = new AtomicBoolean(false);
         AtomicBoolean loadFinish = new AtomicBoolean(false);
 
-        Extract extract = new Extract();
-        extract.setMediaPairs(dumpMediaInfo.getMediaPairs());
-        extract.setSqlExecutor(sqlExecutor);
-        extract.setProductMap(productMap);
-        extract.setExtractFinish(extractFinish);
-        Load load = new Load();
-        load.setProductMap(productMap);
-        load.setSqlExecutor(sqlExecutor);
-        load.setMediaPairs(dumpMediaInfo.getMediaPairs());
-        load.setLoadFinish(loadFinish);
+        ExtractTask extractTask = new ExtractTask();
+        extractTask.setMediaPairs(dumpMediaInfo.getMediaPairs());
+        extractTask.setSqlExecutor(sqlExecutor);
+        extractTask.setProductMap(productMap);
+        extractTask.setExtractFinish(extractFinish);
+        LoadTask loadTask = new LoadTask();
+        loadTask.setProductMap(productMap);
+        loadTask.setSqlExecutor(sqlExecutor);
+        loadTask.setMediaPairs(dumpMediaInfo.getMediaPairs());
+        loadTask.setLoadFinish(loadFinish);
 
-        extract.extract();
-        load.load();
+        extractTask.run();
+        loadTask.run();
 
         while (true) {
             if (loadFinish.get() && extractFinish.get()) {
