@@ -21,3 +21,6 @@ mediaPairs:
     keyPairs:
       - columnName: id
 usingShard: true
+batchSize: 1
+extractThreadSize: 5
+loadThreadSize: 5

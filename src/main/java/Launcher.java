@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 public class Launcher {
@@ -42,19 +43,29 @@ public class Launcher {
             productMap.put(dumpMediaInfo.getMediaPairs().get(i).hashCode(), new LinkedBlockingQueue<>());
         }
 
+        AtomicBoolean extractFinish = new AtomicBoolean(false);
+        AtomicBoolean loadFinish = new AtomicBoolean(false);
+
         Extract extract = new Extract();
         extract.setMediaPairs(dumpMediaInfo.getMediaPairs());
-        extract.setExecutor(sqlExecutor);
+        extract.setSqlExecutor(sqlExecutor);
         extract.setProductMap(productMap);
+        extract.setExtractFinish(extractFinish);
         Load load = new Load();
         load.setProductMap(productMap);
         load.setSqlExecutor(sqlExecutor);
         load.setMediaPairs(dumpMediaInfo.getMediaPairs());
+        load.setLoadFinish(loadFinish);
 
         extract.extract();
         load.load();
 
-        sqlExecutor.stop();
+        while (true) {
+            if (loadFinish.get() && extractFinish.get()) {
+                sqlExecutor.stop();
+                break;
+            }
+        }
     }
 
     private static void doAfterConfigLoaded(DumpMediaInfo mediaInfo, SqlExecutor sqlExecutor) {

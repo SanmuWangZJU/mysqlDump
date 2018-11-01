@@ -49,13 +49,13 @@ public class SqlBuilder {
      * 源端读数据的SQL，加limit（防止数据量过大的情况，便于分批处理）
      * @param mediaPair
      * @param start
-     * @param end
+     * @param batchSize
      * @return
      */
-    public List<String> getSelectSQLWithLimit(MediaPair mediaPair, int start, int end) {
+    public List<String> getSelectSQLWithLimit(MediaPair mediaPair, int start, int batchSize) {
 
         List<String> baseInfos = getSelectSQL(mediaPair);
-        return baseInfos.stream().map(baseInfo->String.format(SELECT_LIMIT_SQL, baseInfo, start, end)).collect(Collectors.toList());
+        return baseInfos.stream().map(baseInfo->String.format(SELECT_LIMIT_SQL, baseInfo, start, batchSize)).collect(Collectors.toList());
     }
 
     /**
@@ -78,6 +78,11 @@ public class SqlBuilder {
         return null;
     }
 
+    /**
+     * 对于向分库分表同步，不支持分片键的更新
+     * @param mediaPair
+     * @return
+     */
     public String getInsertUpdatePSSqlForTarget(MediaPair mediaPair) {
         String res;
         List<ColumnPair> columnPairs = mediaPair.getColumnPairs();
