@@ -13,5 +13,5 @@ public class MysqlMediaSource extends MediaSource {
     private String                      password;
     private Properties                  properties;
     private String                      driver = "com.mysql.jdbc.Driver";
-    private String                      encode = "UTF-8";
+    private String                      encode = "utf8mb4";
 }

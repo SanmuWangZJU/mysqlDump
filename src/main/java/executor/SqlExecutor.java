@@ -3,58 +3,33 @@ package executor;
 import com.zaxxer.hikari.HikariDataSource;
 import exception.DumpException;
 import io.shardingsphere.shardingjdbc.jdbc.core.datasource.ShardingDataSource;
+import lombok.AllArgsConstructor;
 import lombok.Data;
 import model.ColumnData;
 import model.ColumnPair;
 import model.MediaPair;
 import model.RowData;
-import utils.SqlBuilder;
 
 import javax.sql.DataSource;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
+@AllArgsConstructor
 @Data
 public class SqlExecutor {
     private DataSource sourceDataSource;
     private DataSource targetDataSource;
-
-    public ResultSet executeSelectFromSource(String sql) {
-        try {
-            Statement statement = getSourceDataSource().getConnection().createStatement();
-            return statement.executeQuery(sql);
-        } catch (SQLException e) {
-            e.printStackTrace();
-            throw new DumpException("fail to query data from source DB.", e)
-                    .addContextValue("sql", sql);
-        }
-    }
-    public ResultSet executeSelectFromTarget(String sql) {
-        try {
-            Statement statement = getTargetDataSource().getConnection().createStatement();
-            return statement.executeQuery(sql);
-        } catch (SQLException e) {
-            e.printStackTrace();
-            throw new DumpException("fail to query data from source DB.", e)
-                    .addContextValue("sql", sql);
-        }
-    }
-
-    public List<ResultSet> executeSelect1RowFromBoth(MediaPair mediaPair) {
-        List<ResultSet> res = new ArrayList<>();
-        res.add(executeSelectFromSource(SqlBuilder.getSqlBuilder().getSelect1RowSql(mediaPair.getSourceMeta())));
-        res.add(executeSelectFromTarget(SqlBuilder.getSqlBuilder().getSelect1RowSql(mediaPair.getTargetMeta())));
-        return res;
-    }
 
     public void executeInsertToTarget(String sql, List<RowData> rowDatas) {
 
     }
 
     public boolean executeInsertToTargetWithPrepareStatement(String sql, MediaPair mediaPair, List<RowData> rowDatas) {
-        try {
-            PreparedStatement ps = getTargetDataSource().getConnection().prepareStatement(sql);
+        try (
+                Connection connection = getTargetDataSource().getConnection()
+                ){
+            PreparedStatement ps = connection.prepareStatement(sql);
             for (RowData data : rowDatas) {
                 setPSParameters(ps, mediaPair, data);
                 ps.addBatch();
@@ -78,7 +53,7 @@ public class SqlExecutor {
 //        System.out.println(ps.getParameterMetaData().getParameterCount());
         for (int i = 0; i < dataList.size(); i++) {
             // psIndex 从1开始计数
-            ps.setString(i+1, dataList.get(i).getColumnValue());
+            ps.setObject(i+1, dataList.get(i).getColumnValue());
         }
     }
 
@@ -113,4 +88,5 @@ public class SqlExecutor {
             }
         }
     }
+
 }

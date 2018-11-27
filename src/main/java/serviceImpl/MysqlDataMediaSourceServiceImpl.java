@@ -2,6 +2,7 @@ package serviceImpl;
 
 import com.codahale.metrics.JmxReporter;
 import com.codahale.metrics.MetricRegistry;
+import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import configLoader.ConfigFactory;
 import io.shardingsphere.shardingjdbc.api.yaml.YamlShardingDataSourceFactory;
@@ -56,13 +57,19 @@ public class MysqlDataMediaSourceServiceImpl implements DataMediaSourceService {
         hikariDataSource.setUsername(mysqlMediaSource.getUserName());
         hikariDataSource.setPassword(mysqlMediaSource.getPassword());
         hikariDataSource.setDriverClassName(mysqlMediaSource.getDriver());
-        hikariDataSource.addDataSourceProperty("characterEncoding", mysqlMediaSource.getEncode());
+        if (mysqlMediaSource.getEncode().equalsIgnoreCase("utf8mb4")) {
+            hikariDataSource.addDataSourceProperty("characterEncoding", "utf8");
+            hikariDataSource.setConnectionInitSql("set names utf8mb4");
+        } else {
+            hikariDataSource.addDataSourceProperty("characterEncoding", mysqlMediaSource.getEncode());
+        }
         hikariDataSource.setPoolName(mysqlMediaSource.getUrl());
+        hikariDataSource.setAutoCommit(true);
 
         // 静态参数
         hikariDataSource.setMaximumPoolSize(20); // 连接池最大大小default = 10
         hikariDataSource.setMinimumIdle(10); // 连接池最大大小default = 10
-        hikariDataSource.setConnectionTimeout(60000);
+        hikariDataSource.setConnectionTimeout(6000);
         hikariDataSource.setValidationTimeout(60000);
         hikariDataSource.addDataSourceProperty("useSSL", false);
         // settings for preparedStatement

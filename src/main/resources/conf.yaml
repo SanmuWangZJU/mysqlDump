@@ -20,7 +20,7 @@ mediaPairs:
         shardKey: true
     keyPairs:
       - columnName: id
-usingShard: true
-batchSize: 1
-extractThreadSize: 5
-loadThreadSize: 5
+extractBatchSize: 1000
+extractThreadSize: 10
+loadBatchSize: 2000
+usingShard: false

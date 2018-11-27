@@ -23,7 +23,7 @@ public class LoadTask implements Runnable{
     private static ThreadFactory threadFactory;
     private List<MediaPair> mediaPairs;
     private SqlExecutor sqlExecutor;
-    private int loadBatchSize = 1;
+    private int loadBatchSize = 2000;
     private Map<Integer, BlockingQueue<RowData>> productMap;
     private ExecutorService load_executor = Executors.newCachedThreadPool(threadFactory);
     private AtomicBoolean loadFinish;
@@ -39,33 +39,37 @@ public class LoadTask implements Runnable{
     public void run() {
         mediaPairs.forEach(mediaPair -> {
             try {
-                AtomicInteger batchCount = new AtomicInteger(0);
+                AtomicInteger toLoadBatchCount = new AtomicInteger(0);
+                AtomicInteger loadedBatchCount = new AtomicInteger(0);
                 String loadSql = SQL_BUILDER.getInsertUpdatePSSqlForTarget(mediaPair);
                 BlockingQueue<RowData> queue = productMap.get(mediaPair.hashCode());
                 boolean isInterrupted = false;
                 List<RowData> datas = new ArrayList<>();
                 while (!isInterrupted) {
                     // queue 中最后添加stop信号
-                    RowData rowData = queue.poll();
-                    assert rowData != null;
+                    RowData rowData;
+                    while ((rowData = queue.poll()) == null);
                     if (rowData.isEnd()) {
+                        log.info("load ended");
                         isInterrupted = true;
                     } else {
                         datas.add(rowData);
                     }
                     if (datas.size() >= loadBatchSize||isInterrupted) {
-                        batchCount.getAndIncrement();
+                        toLoadBatchCount.getAndIncrement();
                         List<RowData> rowDatas = datas;
-                        log.info("consume data: batch {}; size {}", batchCount.get(), datas.size());
                         datas = new ArrayList<>();
+                        log.debug("consuming data: batch {}; size {}", toLoadBatchCount.get(), rowDatas.size());
                         load_executor.execute(() -> {
                             sqlExecutor.executeInsertToTargetWithPrepareStatement(loadSql, mediaPair, rowDatas);
-                            batchCount.decrementAndGet();
+                            log.debug("consume finish: batch {}", toLoadBatchCount.get());
+                            loadedBatchCount.getAndIncrement();
                         });
                     }
                 }
                 while (true) {
-                    if (batchCount.get() == 0) {
+                    // 此时toLoadBatchCount应该已经达到最大值
+                    if (toLoadBatchCount.get() == loadedBatchCount.get()) {
                         load_executor.shutdownNow();
                         loadFinish.set(true);
                         break;

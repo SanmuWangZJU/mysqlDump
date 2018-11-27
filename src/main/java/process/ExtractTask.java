@@ -12,6 +12,7 @@ import model.MediaPair;
 import model.RowData;
 import utils.SqlBuilder;
 
+import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
@@ -26,10 +27,10 @@ public class ExtractTask implements Runnable{
     private static SqlBuilder SQL_BUILDER = SqlBuilder.getSqlBuilder();
     private List<MediaPair> mediaPairs;
     private SqlExecutor sqlExecutor;
-    private int extractBatchSize = 1;
+    private int extractBatchSize = 500;
     private Map<Integer, BlockingQueue<RowData>> productMap; // init at launcher
     private boolean needOrder = false;
-    private int extractThreadSize = 5;
+    private int extractThreadSize = 10;
     private AtomicBoolean extractFinish;
     private ExecutorService extract_executor = Executors.newFixedThreadPool(extractThreadSize, threadFactory);
 
@@ -67,7 +68,12 @@ public class ExtractTask implements Runnable{
                 int start = startIndex.getAndAdd(extractBatchSize);
                 int batchSize = extractBatchSize;
                 List<String> selectSqls = buildExtractSql(mediaPair, start, batchSize);
-                sqlQueue.offer(selectSqls);
+                while (!sqlQueue.offer(selectSqls)){
+                    if (!canGetMore.get()) {
+                        latch.countDown();
+                        break;
+                    }
+                }
 
                 ExtractWorker worker = new ExtractWorker();
                 worker.setCanGetMore(canGetMore);
@@ -96,7 +102,7 @@ public class ExtractTask implements Runnable{
 
     class ExtractWorker implements Runnable {
 
-        private List<String> selectSqls;
+
         @Setter
         private BlockingQueue<RowData> queue;
         @Setter
@@ -111,14 +117,18 @@ public class ExtractTask implements Runnable{
         @Override
         public void run() {
             if (canGetMore.get()) {
+                List<String> selectSqls;
                 AtomicBoolean hasMore = new AtomicBoolean(true);
                 selectSqls = sqlQueue.poll();
                 if (selectSqls != null) {
                     selectSqls.parallelStream().forEach(selectSql -> {
-                        try {
+                        try (
+                                    Connection connection = sqlExecutor.getSourceDataSource().getConnection()
+                                ){
                             ResultSet rs = null;
                             if (canGetMore.get()) {
-                                rs = sqlExecutor.executeSelectFromSource(selectSql);
+                                rs = connection.createStatement().executeQuery(selectSql);
+                                log.debug("extract sql {}", selectSqls.iterator().next());
                             }
                             if (rs == null || !rs.isBeforeFirst()) {
                                 hasMore.set(false);
@@ -127,7 +137,7 @@ public class ExtractTask implements Runnable{
                                 List<ColumnData> columnDatas = new ArrayList<>();
                                 for (ColumnPair columnPair : mediaPair.getAllColumns()) {
                                     // 使用rs.getDouble()等columnType本身的方法时，如果表中值为null，则会返回0；若向表示为null，应该用getString(),取到值后另行判断
-                                    String columnValue = rs.getString(columnPair.getSourceColumnName());
+                                    Object columnValue = rs.getObject(columnPair.getSourceColumnName());
                                     columnDatas.add(ColumnData.builder()
                                             .columnName(columnPair.getTargetColumnName())
                                             .columnValue(columnValue)
@@ -137,6 +147,7 @@ public class ExtractTask implements Runnable{
                                 RowData data = RowData.builder().mediaPair(mediaPair).value(columnDatas).build();
                                 queue.offer(data);
                             }
+
                             // 其它worker表示已经没有新数据可以select到了，直接结束
                             if (!canGetMore.get()) {
                                 hasMore.set(false);
@@ -151,6 +162,7 @@ public class ExtractTask implements Runnable{
                             if (!hasMore.get()) {
                                 try {
                                     // 待所有线程结束
+                                    log.debug("touch cb await");
                                     cyclicBarrier.await();
                                     canGetMore.set(false);
                                 } catch (InterruptedException | BrokenBarrierException e) {

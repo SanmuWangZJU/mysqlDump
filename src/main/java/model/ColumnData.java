@@ -9,6 +9,6 @@ import lombok.ToString;
 @Builder(toBuilder = true)
 public class ColumnData {
     private String columnName;
-    private String columnValue;
+    private Object columnValue;
     private boolean isKey;
 }

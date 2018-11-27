@@ -7,18 +7,17 @@ import model.DumpMediaInfo;
 import model.RowData;
 import process.ExtractTask;
 import process.LoadTask;
-import service.DataMediaSourceService;
 import serviceImpl.MysqlDataMediaSourceServiceImpl;
+import utils.SqlBuilder;
 import utils.SqlUtils;
 
 import javax.sql.DataSource;
+import java.sql.Connection;
 import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
@@ -28,17 +27,19 @@ public class Launcher {
     private static final SqlUtils SQL_UTILS = SqlUtils.getSqlMetaUtils();
 
     public static void main(String[] args) {
+
         DumpMediaInfo dumpMediaInfo = ConfigFactory.getDumpMediaInfo();
-        DataMediaSourceService mediaSourceService = new MysqlDataMediaSourceServiceImpl();
+        log.debug("dump initial info: \n{}", dumpMediaInfo);
+        MysqlDataMediaSourceServiceImpl mediaSourceService = new MysqlDataMediaSourceServiceImpl();
         DataSource sourceDatasource = mediaSourceService.getDataSource(dumpMediaInfo.getSource());
         DataSource targetDatasource = dumpMediaInfo.isUsingShard()
-                ? ((MysqlDataMediaSourceServiceImpl) mediaSourceService).getDataSource()
+                ? mediaSourceService.getDataSource()
                 : mediaSourceService.getDataSource(dumpMediaInfo.getTarget());
-        SqlExecutor sqlExecutor = new SqlExecutor();
-        sqlExecutor.setSourceDataSource(sourceDatasource);
-        sqlExecutor.setTargetDataSource(targetDatasource);
-//        sqlExecutor.build();
+        SqlExecutor sqlExecutor = new SqlExecutor(sourceDatasource, targetDatasource);
+        ExecutorService taskExecutor = Executors.newFixedThreadPool(2);
+
         doAfterConfigLoaded(dumpMediaInfo, sqlExecutor);
+
         for (int i = 0; i < dumpMediaInfo.getMediaPairs().size(); i++) {
             productMap.put(dumpMediaInfo.getMediaPairs().get(i).hashCode(), new LinkedBlockingQueue<>());
         }
@@ -47,23 +48,28 @@ public class Launcher {
         AtomicBoolean loadFinish = new AtomicBoolean(false);
 
         ExtractTask extractTask = new ExtractTask();
-        extractTask.setMediaPairs(dumpMediaInfo.getMediaPairs());
-        extractTask.setSqlExecutor(sqlExecutor);
+        extractTask.setExtractBatchSize(dumpMediaInfo.getExtractBatchSize());
+        extractTask.setExtractThreadSize(dumpMediaInfo.getExtractThreadSize());
         extractTask.setProductMap(productMap);
+        extractTask.setSqlExecutor(sqlExecutor);
+        extractTask.setMediaPairs(dumpMediaInfo.getMediaPairs());
         extractTask.setExtractFinish(extractFinish);
+
         LoadTask loadTask = new LoadTask();
+        loadTask.setLoadBatchSize(dumpMediaInfo.getLoadBatchSize());
         loadTask.setProductMap(productMap);
         loadTask.setSqlExecutor(sqlExecutor);
         loadTask.setMediaPairs(dumpMediaInfo.getMediaPairs());
         loadTask.setLoadFinish(loadFinish);
 
-        extractTask.run();
-        loadTask.run();
+        taskExecutor.submit(extractTask);
+        taskExecutor.submit(loadTask);
 
         while (true) {
             if (loadFinish.get() && extractFinish.get()) {
                 sqlExecutor.stop();
-                break;
+                log.info("mydump work finished");
+                System.exit(0);
             }
         }
     }
@@ -80,29 +86,34 @@ public class Launcher {
                 mediaPair.getTargetMeta().setSchemaName(mediaPair.getSourceMeta().getSchemaName());
                 mediaPair.getTargetMeta().setSchemaName(mediaPair.getSourceMeta().getTableName());
             }
+            try (
+                    Connection sourceConnection = sqlExecutor.getSourceDataSource().getConnection();
+                    Connection targetConnection = sqlExecutor.getTargetDataSource().getConnection()
+            ) {
 
-            List<ResultSet> metaRS = sqlExecutor.executeSelect1RowFromBoth(mediaPair);
-            assert metaRS.size() == 2;
-            ResultSet sourceRS = metaRS.get(0);
-            ResultSet targetRS = metaRS.get(1);
+                ResultSet sourceRS = sourceConnection.createStatement().executeQuery(SqlBuilder.getSqlBuilder().getSelect1RowSql(mediaPair.getSourceMeta()));
+                ResultSet targetRS = targetConnection.createStatement().executeQuery(SqlBuilder.getSqlBuilder().getSelect1RowSql(mediaPair.getTargetMeta()));
 
-            // 如果只填写了columnName，则说明源端目标端字段名一致
-            mediaPair.getColumnPairs().forEach(columnPair -> {
-                if (columnPair.getColumnName() != null) {
-                    columnPair.setSourceColumnName(columnPair.getColumnName());
-                    columnPair.setTargetColumnName(columnPair.getColumnName());
-                }
-                columnPair.setColumnType(SQL_UTILS.getColumnType(sourceRS, columnPair.getSourceColumnName()));
-                columnPair.setTargetNumeric(SQL_UTILS.isNumeric(SQL_UTILS.getColumnType(targetRS, columnPair.getTargetColumnName())));
-            });
-            mediaPair.getKeyPairs().forEach(columnPair -> {
-                if (columnPair.getColumnName() != null) {
-                    columnPair.setSourceColumnName(columnPair.getColumnName());
-                    columnPair.setTargetColumnName(columnPair.getColumnName());
-                }
-                columnPair.setColumnType(SQL_UTILS.getColumnType(sourceRS, columnPair.getSourceColumnName()));
-                columnPair.setTargetNumeric(SQL_UTILS.isNumeric(SQL_UTILS.getColumnType(targetRS, columnPair.getTargetColumnName())));
-            });
+                // 如果只填写了columnName，则说明源端目标端字段名一致
+                mediaPair.getColumnPairs().forEach(columnPair -> {
+                    if (columnPair.getColumnName() != null) {
+                        columnPair.setSourceColumnName(columnPair.getColumnName());
+                        columnPair.setTargetColumnName(columnPair.getColumnName());
+                    }
+                    columnPair.setColumnType(SQL_UTILS.getColumnType(sourceRS, columnPair.getSourceColumnName()));
+                    columnPair.setTargetNumeric(SQL_UTILS.isNumeric(SQL_UTILS.getColumnType(targetRS, columnPair.getTargetColumnName())));
+                });
+                mediaPair.getKeyPairs().forEach(columnPair -> {
+                    if (columnPair.getColumnName() != null) {
+                        columnPair.setSourceColumnName(columnPair.getColumnName());
+                        columnPair.setTargetColumnName(columnPair.getColumnName());
+                    }
+                    columnPair.setColumnType(SQL_UTILS.getColumnType(sourceRS, columnPair.getSourceColumnName()));
+                    columnPair.setTargetNumeric(SQL_UTILS.isNumeric(SQL_UTILS.getColumnType(targetRS, columnPair.getTargetColumnName())));
+                });
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
 
             // 拼接成后面需要的全部的column信息
             List<ColumnPair> allColumns = new ArrayList<>();
